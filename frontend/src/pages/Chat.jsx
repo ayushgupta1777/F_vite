@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { AuthProvider } from '../context/AuthContext';
+import { AuthContext } from '../context/AuthContext';
 import { messageService } from '../services/api';
 import { initSocket } from '../services/socket';
 import MessageList from '../components/MessageList';
 import MessageInput from '../components/MessageInput';
 
+
 const Chat = () => {
   const { mobile } = useParams();
-  const { currentUser } = useContext(AuthProvider);
+  const { currentUser } = useContext(AuthContext);
   const [messages, setMessages] = useState([]);
   const [chatId, setChatId] = useState(null);
   const [otherUser, setOtherUser] = useState(null);
