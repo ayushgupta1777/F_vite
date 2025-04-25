@@ -72,11 +72,110 @@ exports.getMessages = async (req, res) => {
   }
 };
 
+// // Send a message
+// exports.sendMessage = async (req, res) => {
+//   try {
+//     const { receiver, text, chatId } = req.body;
+//     const sender = req.user.mobile;
+    
+//     // Find or create chat
+//     let chat;
+    
+//     if (chatId) {
+//       chat = await Chat.findById(chatId);
+//       if (!chat) {
+//         return res.status(404).json({ message: 'Chat not found' });
+//       }
+//     } else {
+//       chat = await Chat.findOne({
+//         participants: { $all: [sender, receiver] }
+//       });
+      
+//       if (!chat) {
+//         // Create a new chat
+//         chat = new Chat({
+//           participants: [sender, receiver],
+//           unreadCounts: {}
+//         });
+        
+//         await chat.save();
+//       }
+//     }
+    
+//     // Create message
+//     const message = new Message({
+//       chatId: chat._id,
+//       sender,
+//       receiver,
+//       text,
+//       timestamp: Date.now()
+//     });
+    
+//     await message.save();
+    
+//     // Update chat's last message and increment unread count
+//     chat.lastMessage = message._id;
+//     chat.updatedAt = Date.now();
+    
+//     // Initialize unreadCounts if not exists
+//     if (!chat.unreadCounts) {
+//       chat.unreadCounts = {};
+//     }
+    
+//     // Increment unread count for receiver
+//     chat.unreadCounts[receiver] = (chat.unreadCounts[receiver] || 0) + 1;
+    
+//     await chat.save();
+    
+//     // Emit socket event if IO is available
+//     if (io) {
+//       // Format message for frontend
+//       const messageData = {
+//         _id: message._id,
+//         chatId: chat._id,
+//         sender,
+//         receiver,
+//         text,
+//         createdAt: message.timestamp
+//       };
+      
+//       // Send to receiver
+//       io.to(receiver).emit('receive_message', messageData);
+      
+//       // Send notification with unread count
+//       io.to(receiver).emit('new_message_notification', {
+//         chatId: chat._id,
+//         sender,
+//         unreadCount: chat.unreadCounts[receiver],
+//         lastMessage: {
+//           _id: message._id,
+//           text,
+//           sender,
+//           createdAt: message.timestamp
+//         }
+//       });
+//     }
+    
+//     res.status(201).json({ 
+//       message: 'Message sent successfully',
+//       messageId: message._id,
+//       chatId: chat._id
+//     });
+//   } catch (error) {
+//     console.error('Error sending message:', error);
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// };
+
 // Send a message
 exports.sendMessage = async (req, res) => {
   try {
     const { receiver, text, chatId } = req.body;
     const sender = req.user.mobile;
+    
+    if (!receiver || !text) {
+      return res.status(400).json({ message: 'Receiver and text are required' });
+    }
     
     // Find or create chat
     let chat;
@@ -92,77 +191,57 @@ exports.sendMessage = async (req, res) => {
       });
       
       if (!chat) {
+        // Check if the receiver exists
+        const receiverUser = await User.findOne({ mobile: receiver });
+        
+        if (!receiverUser) {
+          return res.status(404).json({ message: 'Receiver not found' });
+        }
+        
         // Create a new chat
         chat = new Chat({
           participants: [sender, receiver],
-          unreadCounts: {}
+          unreadCounts: { [receiver]: 0 }
         });
-        
-        await chat.save();
       }
     }
     
-    // Create message
+    // Create a new message
     const message = new Message({
       chatId: chat._id,
       sender,
       receiver,
-      text,
-      timestamp: Date.now()
+      text
     });
     
     await message.save();
     
-    // Update chat's last message and increment unread count
+    // Increment unread count for receiver
+    const unreadCounts = chat.unreadCounts || {};
+    unreadCounts[receiver] = (unreadCounts[receiver] || 0) + 1;
+    chat.unreadCounts = unreadCounts;
+    
+    // Update the chat's lastMessage and updatedAt
     chat.lastMessage = message._id;
     chat.updatedAt = Date.now();
-    
-    // Initialize unreadCounts if not exists
-    if (!chat.unreadCounts) {
-      chat.unreadCounts = {};
-    }
-    
-    // Increment unread count for receiver
-    chat.unreadCounts[receiver] = (chat.unreadCounts[receiver] || 0) + 1;
-    
     await chat.save();
-    
-    // Emit socket event if IO is available
+
+    // Emit message via socket
     if (io) {
-      // Format message for frontend
-      const messageData = {
+      io.emit('receive_message', {
         _id: message._id,
-        chatId: chat._id,
-        sender,
-        receiver,
-        text,
-        createdAt: message.timestamp
-      };
-      
-      // Send to receiver
-      io.to(receiver).emit('receive_message', messageData);
-      
-      // Send notification with unread count
-      io.to(receiver).emit('new_message_notification', {
-        chatId: chat._id,
-        sender,
-        unreadCount: chat.unreadCounts[receiver],
-        lastMessage: {
-          _id: message._id,
-          text,
-          sender,
-          createdAt: message.timestamp
-        }
+        chatId: message.chatId,
+        sender: message.sender,
+        receiver: message.receiver,
+        text: message.text,
+        createdAt: message.createdAt
       });
     }
     
-    res.status(201).json({ 
-      message: 'Message sent successfully',
-      messageId: message._id,
-      chatId: chat._id
-    });
-  } catch (error) {
-    console.error('Error sending message:', error);
+    res.status(201).json({ message });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 };
+

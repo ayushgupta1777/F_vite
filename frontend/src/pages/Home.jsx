@@ -66,10 +66,17 @@ const Home = () => {
     // Add listener for messages_read event
     socketRef.current.on('messages_read', (data) => {
       console.log('Messages read notification:', data);
-      // Update the chat list to reflect read messages
-      fetchChats();
+    
+      // Update chat list to reflect read status
+      setChats((prevChats) =>
+        prevChats.map((chat) =>
+          chat._id === data.chatId
+            ? { ...chat, unreadCounts: 0 }
+            : chat
+        )
+      );
     });
-
+    
     return () => {
       if (socketRef.current) {
         socketRef.current.off('receive_message');

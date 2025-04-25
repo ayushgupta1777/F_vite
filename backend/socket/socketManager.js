@@ -41,6 +41,90 @@ module.exports = (io) => {
     
     // Listen for new messages
 // Listen for new messages
+// socket.on('send_message', async (data) => {
+//   try {
+//     const { receiver, text, chatId } = data;
+//     const sender = userMobile;
+    
+//     // Find or create chat
+//     let chat;
+    
+//     if (chatId) {
+//       chat = await Chat.findById(chatId);
+//       if (!chat) {
+//         throw new Error('Chat not found');
+//       }
+//     } else {
+//       chat = await Chat.findOne({
+//         participants: { $all: [sender, receiver] }
+//       });
+      
+//       if (!chat) {
+//         // Create a new chat
+//         chat = new Chat({
+//           participants: [sender, receiver],
+//           unreadCounts: { [receiver]: 0 }
+//         });
+        
+//         await chat.save();
+//       }
+//     }
+    
+//     // Create a new message
+//     const message = new Message({
+//       chatId: chat._id,
+//       sender,
+//       receiver,
+//       text,
+//       timestamp: Date.now()
+//     });
+    
+//     await message.save();
+    
+//     // Increment unread count for receiver
+//     const unreadCounts = chat.unreadCounts || {};
+//     unreadCounts[receiver] = (unreadCounts[receiver] || 0) + 1;
+//     chat.unreadCounts = unreadCounts;
+    
+//     // Update the chat's lastMessage and updatedAt
+//     chat.lastMessage = message._id;
+//     chat.updatedAt = Date.now();
+//     await chat.save();
+    
+//     // Emit the message to both sender and receiver
+//     const messageData = {
+//       _id: message._id,
+//       chatId: chat._id,
+//       sender,
+//       receiver,
+//       text,
+//       createdAt: message.createdAt
+//     };
+    
+//     io.to(receiver).emit('receive_message', messageData);
+//     socket.emit('message_sent', messageData);
+    
+// // Notify receiver about new message with unread count
+// if (connectedUsers.has(receiver)) {
+//   io.to(receiver).emit('new_message_notification', {
+//     chatId: chat._id,
+//     sender,
+//     unreadCount: unreadCounts[receiver],
+//     lastMessage: {
+//       _id: message._id,
+//       text: text,
+//       sender: sender,
+//       createdAt: message.createdAt
+//     }
+//   });
+// }
+//   } catch (err) {
+//     console.error('Error sending message:', err);
+//     socket.emit('message_error', { error: err.message });
+//   }
+// });
+
+// Listen for new messages
 socket.on('send_message', async (data) => {
   try {
     const { receiver, text, chatId } = data;
@@ -104,20 +188,14 @@ socket.on('send_message', async (data) => {
     io.to(receiver).emit('receive_message', messageData);
     socket.emit('message_sent', messageData);
     
-// Notify receiver about new message with unread count
-if (connectedUsers.has(receiver)) {
-  io.to(receiver).emit('new_message_notification', {
-    chatId: chat._id,
-    sender,
-    unreadCount: unreadCounts[receiver],
-    lastMessage: {
-      _id: message._id,
-      text: text,
-      sender: sender,
-      createdAt: message.createdAt
+    // Notify receiver about new message with unread count
+    if (connectedUsers.has(receiver)) {
+      io.to(receiver).emit('new_message_notification', {
+        chatId: chat._id,
+        sender,
+        unreadCount: unreadCounts[receiver]
+      });
     }
-  });
-}
   } catch (err) {
     console.error('Error sending message:', err);
     socket.emit('message_error', { error: err.message });
@@ -146,23 +224,19 @@ if (connectedUsers.has(receiver)) {
           { chatId, sender, receiver: userMobile, read: false },
           { $set: { read: true } }
         );
-        
-        // Update unread count in chat
+    
+        // Reset unread count in chat
         const chat = await Chat.findById(chatId);
-        if (chat && chat.unreadCounts && chat.unreadCounts[userMobile] > 0) {
-          const unreadCounts = chat.unreadCounts;
-          unreadCounts[userMobile] = 0;
-          chat.unreadCounts = unreadCounts;
+        if (chat) {
+          chat.unreadCounts[userMobile] = 0;
           await chat.save();
         }
-        
-        // Notify the sender that messages were read
-        if (connectedUsers.has(sender)) {
-          io.to(sender).emit('messages_read', { 
-            chatId, 
-            reader: userMobile 
-          });
-        }
+    
+        // Notify sender about read status
+        io.to(sender).emit('messages_read', {
+          chatId,
+          reader: userMobile,
+        });
       } catch (err) {
         console.error('Error marking messages as read:', err);
       }
