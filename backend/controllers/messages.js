@@ -1,82 +1,82 @@
 const Message = require('../models/Message');
 const Chat = require('../models/Chat');
-const User = require('../models/User');
+const mongoose = require('mongoose');
 
-let io; // 👈 make a reference at the top
-exports.injectIO = (serverIO) => { io = serverIO };
+// Store the IO instance for emitting events
+let io;
 
-// Get messages between two users
-// Get messages between two users
+// Function to inject Socket.IO instance
+exports.injectIO = (socketIO) => {
+  io = socketIO;
+};
+
+// Get messages between the current user and another user
 exports.getMessages = async (req, res) => {
   try {
-    const userMobile = req.user.mobile;
-    const { mobile: otherMobile } = req.params;
-    
-    // Find or create chat between these two users
+    const currentUserMobile = req.user.mobile;
+    const otherUserMobile = req.params.mobile;
+
+    // Find or create chat
     let chat = await Chat.findOne({
-      participants: { $all: [userMobile, otherMobile] }
+      participants: { $all: [currentUserMobile, otherUserMobile] }
     });
-    
+
     if (!chat) {
-      // Check if the other user exists
-      const otherUser = await User.findOne({ mobile: otherMobile });
-      
-      if (!otherUser) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      
-      // Create a new chat
+      // Create new chat if it doesn't exist
       chat = new Chat({
-        participants: [userMobile, otherMobile],
+        participants: [currentUserMobile, otherUserMobile],
         unreadCounts: {}
       });
-      
       await chat.save();
-      
-      // Return empty messages array for new chat
-      return res.json({ messages: [], chatId: chat._id });
     }
-    
-    // Get messages for this chat
-    const messages = await Message.find({ chatId: chat._id })
-      .sort({ timestamp: 1 });
-    
-    // Mark messages as read
-    await Message.updateMany(
-      { chatId: chat._id, receiver: userMobile, read: false },
-      { $set: { read: true } }
-    );
-    
-    // Reset unread count for current user
-    if (chat.unreadCounts && chat.unreadCounts[userMobile] > 0) {
-      const unreadCounts = chat.unreadCounts || {};
-      unreadCounts[userMobile] = 0;
+
+    // Find all messages between these two users
+    const messages = await Message.find({
+      chatId: chat._id
+    }).sort({ timestamp: 1 });
+
+    // Reset unread count for the current user
+    if (chat.unreadCounts && chat.unreadCounts[currentUserMobile] > 0) {
+      const unreadCounts = chat.unreadCounts;
+      unreadCounts[currentUserMobile] = 0;
       chat.unreadCounts = unreadCounts;
       await chat.save();
       
-      // Also emit socket event to update UI in real-time
-      // This will be picked up by the socket handler
+      // Mark messages as read in database
+      await Message.updateMany(
+        { 
+          chatId: chat._id, 
+          sender: otherUserMobile, 
+          receiver: currentUserMobile, 
+          read: false 
+        },
+        { $set: { read: true } }
+      );
+
+      // Emit event to notify message was read (only if the other user is connected)
+      if (io) {
+        io.to(otherUserMobile).emit('messages_read', { 
+          chatId: chat._id, 
+          reader: currentUserMobile 
+        });
+      }
     }
-    
-    res.json({ messages, chatId: chat._id });
-  } catch (err) {
-    console.error(err);
+
+    res.json({ 
+      messages, 
+      chatId: chat._id 
+    });
+  } catch (error) {
+    console.error('Error fetching messages:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-
-// Send a message
-// backend/controllers/messages.js - Fix the sendMessage function
 // Send a message
 exports.sendMessage = async (req, res) => {
   try {
     const { receiver, text, chatId } = req.body;
     const sender = req.user.mobile;
-    
-    if (!receiver || !text) {
-      return res.status(400).json({ message: 'Receiver and text are required' });
-    }
     
     // Find or create chat
     let chat;
@@ -92,56 +92,77 @@ exports.sendMessage = async (req, res) => {
       });
       
       if (!chat) {
-        // Check if the receiver exists
-        const receiverUser = await User.findOne({ mobile: receiver });
-        
-        if (!receiverUser) {
-          return res.status(404).json({ message: 'Receiver not found' });
-        }
-        
         // Create a new chat
         chat = new Chat({
           participants: [sender, receiver],
-          unreadCounts: { [receiver]: 0 }
+          unreadCounts: {}
         });
+        
+        await chat.save();
       }
     }
     
-    // Create a new message
+    // Create message
     const message = new Message({
       chatId: chat._id,
       sender,
       receiver,
-      text
+      text,
+      timestamp: Date.now()
     });
     
     await message.save();
     
-    // Increment unread count for receiver
-    const unreadCounts = chat.unreadCounts || {};
-    unreadCounts[receiver] = (unreadCounts[receiver] || 0) + 1;
-    chat.unreadCounts = unreadCounts;
-    
-    // Update the chat's lastMessage and updatedAt
+    // Update chat's last message and increment unread count
     chat.lastMessage = message._id;
     chat.updatedAt = Date.now();
+    
+    // Initialize unreadCounts if not exists
+    if (!chat.unreadCounts) {
+      chat.unreadCounts = {};
+    }
+    
+    // Increment unread count for receiver
+    chat.unreadCounts[receiver] = (chat.unreadCounts[receiver] || 0) + 1;
+    
     await chat.save();
-
-    // Emit message via socket
+    
+    // Emit socket event if IO is available
     if (io) {
-      io.emit('receive_message', {
+      // Format message for frontend
+      const messageData = {
         _id: message._id,
-        chatId: message.chatId,
-        sender: message.sender,
-        receiver: message.receiver,
-        text: message.text,
-        createdAt: message.createdAt
+        chatId: chat._id,
+        sender,
+        receiver,
+        text,
+        createdAt: message.timestamp
+      };
+      
+      // Send to receiver
+      io.to(receiver).emit('receive_message', messageData);
+      
+      // Send notification with unread count
+      io.to(receiver).emit('new_message_notification', {
+        chatId: chat._id,
+        sender,
+        unreadCount: chat.unreadCounts[receiver],
+        lastMessage: {
+          _id: message._id,
+          text,
+          sender,
+          createdAt: message.timestamp
+        }
       });
     }
     
-    res.status(201).json({ message });
-  } catch (err) {
-    console.error(err);
+    res.status(201).json({ 
+      message: 'Message sent successfully',
+      messageId: message._id,
+      chatId: chat._id
+    });
+  } catch (error) {
+    console.error('Error sending message:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };

@@ -62,11 +62,19 @@ const Home = () => {
       console.log('New message notification:', data);
       fetchChats();
     });
+    
+    // Add listener for messages_read event
+    socketRef.current.on('messages_read', (data) => {
+      console.log('Messages read notification:', data);
+      // Update the chat list to reflect read messages
+      fetchChats();
+    });
 
     return () => {
       if (socketRef.current) {
         socketRef.current.off('receive_message');
         socketRef.current.off('new_message_notification');
+        socketRef.current.off('messages_read');
       }
     };
   }, [navigate]);
@@ -106,6 +114,9 @@ const Home = () => {
 
   const handleChatClick = (chatId, otherUserMobile) => {
     navigate(`/chat/${otherUserMobile}`);
+    
+    // No need to manually mark as read here since we'll do it in the Chat component
+    // when entering the chat
   };
 
   return (
