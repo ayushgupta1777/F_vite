@@ -1,42 +1,6 @@
 import { io } from 'socket.io-client';
 
 let socket;
-// SocketContext.jsx
-// import React, { createContext, useContext, useEffect, useState } from 'react';
-// import { useAuth } from '../context/AuthContext';
-
-// const SocketContext = createContext();
-
-// export const SocketProvider = ({ children }) => {
-//   const [socket, setSocket] = useState(null);
-//   const { token, isAuthenticated } = useAuth();
-  
-//   useEffect(() => {
-//     if (isAuthenticated && token) {
-//       // Connect to the socket server
-//       const newSocket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000', {
-//         auth: { token }
-//       });
-      
-//       setSocket(newSocket);
-      
-//       // Clean up on unmount
-//       return () => {
-//         newSocket.disconnect();
-//       };
-//     }
-//   }, [isAuthenticated, token]);
-  
-//   return (
-//     <SocketContext.Provider value={socket}>
-//       {children}
-//     </SocketContext.Provider>
-//   );
-// };
-
-export const useSocket = () => {
-  return useContext(SocketContext);
-};
 
 export const initSocket = (token) => {
   if (socket) {

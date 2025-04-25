@@ -1,134 +1,73 @@
+import React from 'react';
 
-// ChatList.jsx - This component shows the list of chats on the home page
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
-import { useSocket } from '../services/socket';
-
-const ChatList = () => {
-  const [chats, setChats] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const { user, token } = useAuth();
-  const socket = useSocket();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    // Fetch all chats for the current user
-    const fetchChats = async () => {
-      try {
-        const response = await axios.get('/api/users/chats/all', {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
-        setChats(response.data);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching chats:', error);
-        setLoading(false);
-      }
-    };
-
-    fetchChats();
-
-    // Listen for new message notifications
-    if (socket) {
-      socket.on('new_message_notification', (data) => {
-        setChats(prevChats => {
-          return prevChats.map(chat => {
-            if (chat._id === data.chatId) {
-              // Update the unread count for this chat
-              return { 
-                ...chat, 
-                unreadCount: data.unreadCount,
-                // If we received the lastMessage data, update it as well
-                lastMessage: data.lastMessage ? data.lastMessage : chat.lastMessage
-              };
-            }
-            return chat;
-          });
-        });
-      });
-
-      // Listen for when messages are marked as read
-      socket.on('messages_read', (data) => {
-        setChats(prevChats => {
-          return prevChats.map(chat => {
-            if (chat._id === data.chatId) {
-              // Clear the unread count for this chat
-              return { ...chat, unreadCount: 0 };
-            }
-            return chat;
-          });
-        });
-      });
-    }
-
-    return () => {
-      if (socket) {
-        socket.off('new_message_notification');
-        socket.off('messages_read');
-      }
-    };
-  }, [socket, token]);
-
-  const handleChatClick = (chat) => {
-    // Get the other participant's mobile number
-    const otherParticipantMobile = chat.participants.find(
-      p => p.mobile !== user.mobile
-    ).mobile;
-    
-    // Navigate to the chat page
-    navigate(`/chat/${otherParticipantMobile}`);
+const ChatList = ({ chats, currentUserMobile, onChatClick }) => {
+  // Function to get the other user from a chat
+  const getOtherUser = (chat) => {
+    const otherParticipant = chat.participants.find(p => p.mobile !== currentUserMobile);
+    return otherParticipant || { mobile: 'Unknown User' };
   };
 
-  if (loading) {
-    return <div className="loading">Loading chats...</div>;
+  // Function to get the last message preview
+  const getLastMessagePreview = (chat) => {
+    if (!chat.lastMessage) {
+      return 'No messages yet';
+    }
+    
+    const preview = chat.lastMessage.text;
+    return preview.length > 30 ? `${preview.substring(0, 30)}...` : preview;
+  };
+
+  // Function to format timestamp
+  const formatTime = (timestamp) => {
+    if (!timestamp) return '';
+    
+    const date = new Date(timestamp);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    if (isToday) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else {
+      return date.toLocaleDateString();
+    }
+  };
+
+  if (chats.length === 0) {
+    return <div className="no-chats">No chats yet. Start a new conversation!</div>;
   }
 
   return (
     <div className="chat-list">
-      <h2>Your Conversations</h2>
-      {chats.length === 0 ? (
-        <p>No conversations yet. Start chatting!</p>
-      ) : (
-        chats.map(chat => {
-          const otherParticipant = chat.participants.find(
-            p => p.mobile !== user.mobile
-          );
-          
-          return (
-            <div 
-              key={chat._id} 
-              className="chat-item" 
-              onClick={() => handleChatClick(chat)}
-            >
-              <div className="chat-avatar">
-                {otherParticipant.profilePicture ? (
-                  <img src={otherParticipant.profilePicture} alt="Profile" />
-                ) : (
-                  <div className="default-avatar">
-                    {otherParticipant.mobile.substring(0, 2)}
-                  </div>
+      {chats.map((chat) => {
+        const otherUser = getOtherUser(chat);
+        
+        // In ChatList.jsx
+        return (
+          <div 
+            key={chat._id} 
+            className="chat-item"
+            onClick={() => onChatClick(chat._id, otherUser.mobile)}
+          >
+            <div className="chat-item-avatar">
+              {otherUser.mobile.substring(0, 2)}
+            </div>
+            <div className="chat-item-details">
+              <div className="chat-item-header">
+                <h4>{otherUser.mobile}</h4>
+                <span className="chat-item-time">
+                  {formatTime(chat.lastMessage?.createdAt)}
+                </span>
+              </div>
+              <div className="chat-item-preview-row">
+                <p className="chat-item-message">{getLastMessagePreview(chat)}</p>
+                {chat.unreadCounts > 0 && (
+                  <div className="unread-badge">{chat.unreadCounts}</div>
                 )}
               </div>
-              <div className="chat-info">
-                <h3>{otherParticipant.mobile}</h3>
-                <p className="last-message">
-                  {chat.lastMessage ? chat.lastMessage.text : 'No messages yet'}
-                </p>
-              </div>
-              {/* Display unread count badge if there are unread messages */}
-              {chat.unreadCount > 0 && (
-                <div className="unread-badge">
-                  {chat.unreadCount}
-                </div>
-              )}
             </div>
-          );
-        })
-      )}
+          </div>
+        );
+      })}
     </div>
   );
 };

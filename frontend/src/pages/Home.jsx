@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
+import { AuthProvider } from '../context/AuthContext';
 import { userService } from '../services/api';
 import ChatList from '../components/ChatList';
 import NewChatForm from '../components/NewChatForm';
@@ -10,7 +10,7 @@ const Home = () => {
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { currentUser, logout } = useContext(AuthContext);
+  const { user, logout } = AuthProvider();
   const navigate = useNavigate();
   const socketRef = useRef(null);
 
@@ -78,7 +78,7 @@ const Home = () => {
       setError('');
       
       // Don't allow chat with yourself
-      if (mobile === currentUser.mobile) {
+      if (mobile === user.mobile) {
         setError("You can't chat with yourself");
         return;
       }
@@ -113,7 +113,7 @@ const Home = () => {
       <header className="home-header">
         <h2>Chat App</h2>
         <div className="user-info">
-          <span>{currentUser?.mobile}</span>
+          <span>{user?.mobile}</span>
           <button onClick={handleLogout} className="logout-btn">Logout</button>
         </div>
       </header>
@@ -126,7 +126,7 @@ const Home = () => {
         ) : (
           <ChatList 
             chats={chats} 
-            currentUserMobile={currentUser?.mobile} 
+            currentUserMobile={user?.mobile} 
             onChatClick={handleChatClick}
           />
         )}

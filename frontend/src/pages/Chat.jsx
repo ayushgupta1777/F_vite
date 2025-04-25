@@ -1,156 +1,160 @@
-// ChatPage.jsx - This component shows the individual chat conversation
-import React, { useEffect, useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
-import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
-import { useSocket } from '../services/socket';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { AuthProvider } from '../context/AuthContext';
+import { messageService } from '../services/api';
+import { initSocket } from '../services/socket';
+import MessageList from '../components/MessageList';
+import MessageInput from '../components/MessageInput';
 
-const ChatPage = () => {
-  const { mobile } = useParams(); // Get the other user's mobile from URL
+const Chat = () => {
+  const { mobile } = useParams();
+  const { currentUser } = useContext(AuthProvider);
   const [messages, setMessages] = useState([]);
   const [chatId, setChatId] = useState(null);
-  const [newMessage, setNewMessage] = useState('');
+  const [otherUser, setOtherUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const { user, token } = useAuth();
-  const socket = useSocket();
+  const [error, setError] = useState('');
+  const socketRef = useRef(null);
+  const navigate = useNavigate();
   const messagesEndRef = useRef(null);
-
-  // Fetch messages when component mounts or mobile parameter changes
+  
   useEffect(() => {
-    const fetchMessages = async () => {
+    // Initialize socket
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    
+    socketRef.current = initSocket(token);
+
+    // Fetch messages
+    const getMessages = async () => {
       try {
-        const response = await axios.get(`/api/messages/${mobile}`, {
-          headers: {
-            Authorization: `Bearer ${token}`
+        const response = await messageService.getMessages(mobile);
+        console.log("Message response:", response.data);
+        
+        if (response.data && Array.isArray(response.data.messages)) {
+          setMessages(response.data.messages);
+          setChatId(response.data.chatId);
+          
+          // Mark messages as read via socket
+          if (response.data.chatId && socketRef.current) {
+            socketRef.current.emit('mark_read', {
+              chatId: response.data.chatId,
+              sender: mobile
+            });
           }
-        });
-        
-        setMessages(response.data.messages);
-        setChatId(response.data.chatId);
-        setLoading(false);
-        
-        // Mark messages as read when chat is opened
-        if (socket && response.data.chatId) {
-          socket.emit('mark_read', {
-            chatId: response.data.chatId,
-            sender: mobile
-          });
+        } else {
+          console.error("Expected messages array, got:", response.data);
+          setError("Invalid message format from server");
         }
+        setLoading(false);
       } catch (error) {
-        console.error('Error fetching messages:', error);
+        console.error("Error fetching messages:", error);
+        setError('Failed to load messages');
         setLoading(false);
       }
     };
 
-    fetchMessages();
-  }, [mobile, token, socket]);
+    getMessages();
 
-  // Set up socket listeners for real-time messaging
-  useEffect(() => {
-    if (socket) {
-      // Listen for new messages
-      socket.on('receive_message', (data) => {
-        // Only add the message if it's from the current chat
-        if (data.sender === mobile || data.receiver === mobile) {
-          setMessages(prevMessages => [...prevMessages, data]);
-          
-          // Mark message as read immediately if we're in this chat
-          socket.emit('mark_read', {
-            chatId: data.chatId,
+    // Set up socket listeners
+    socketRef.current.on('connect', () => {
+      console.log('Connected to socket server in Chat');
+    });
+
+    socketRef.current.on('receive_message', (message) => {
+      console.log('Received message in Chat:', message);
+      // Add message to state if it belongs to this chat
+      if ((message.sender === mobile && message.receiver === currentUser.mobile) ||
+          (message.sender === currentUser.mobile && message.receiver === mobile)) {
+        setMessages(prev => [...prev, message]);
+        
+        // Mark message as read if receiver is current user
+        if (message.sender === mobile && message.receiver === currentUser.mobile && chatId) {
+          socketRef.current.emit('mark_read', {
+            chatId: chatId,
             sender: mobile
           });
         }
-      });
+      }
+    });
 
-      // Clean up socket listeners
-      return () => {
-        socket.off('receive_message');
-      };
-    }
-  }, [socket, mobile, chatId]);
+    // Clean up
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.off('receive_message');
+      }
+    };
+  }, [mobile, currentUser, navigate]);
 
-  // Scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    
-    if (!newMessage.trim()) return;
-    
+  const handleSendMessage = async (text) => {
     try {
-      // Send message via socket for real-time updates
-      if (socket) {
-        socket.emit('send_message', {
-          receiver: mobile,
-          text: newMessage,
-          chatId: chatId
-        });
-      } else {
-        // Fallback to API if socket isn't available
-        await axios.post('/api/messages', {
-          receiver: mobile,
-          text: newMessage,
-          chatId: chatId
-        }, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+      const messageData = {
+        receiver: mobile,
+        text: text
+      };
+      
+      // If we have a chatId, include it in the request
+      if (chatId) {
+        messageData.chatId = chatId;
       }
       
-      setNewMessage('');
+      const response = await messageService.sendMessage(mobile, text, chatId);
+      console.log("Message sent response:", response.data);
+      
+      // Optionally, for immediate feedback, you can add the message to state:
+      const newMessage = {
+        _id: Date.now(), // Temporary ID until server message arrives
+        sender: currentUser.mobile,
+        receiver: mobile,
+        text: text,
+        createdAt: new Date().toISOString()
+      };
+      
+      setMessages(prev => [...prev, newMessage]);
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error("Error sending message:", error);
+      setError('Failed to send message');
     }
   };
 
-  if (loading) {
-    return <div className="loading">Loading conversation...</div>;
-  }
+  const handleBackClick = () => {
+    navigate('/');
+  };
 
   return (
-    <div className="chat-page">
-      <div className="chat-header">
-        <h2>Chat with {mobile}</h2>
-      </div>
-      
-      <div className="messages-container">
-        {messages.length === 0 ? (
-          <p className="no-messages">No messages yet. Say hello!</p>
+    <div className="chat-container">
+      <header className="chat-header">
+        <button className="back-btn" onClick={handleBackClick}>Back</button>
+        <div className="chat-user-info">
+          <h3>{otherUser ? otherUser.mobile : mobile}</h3>
+        </div>
+      </header>
+
+      <div className="chat-content">
+        {loading ? (
+          <div className="loading">Loading messages...</div>
+        ) : error ? (
+          <div className="error-message">{error}</div>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message._id}
-              className={`message ${message.sender === user.mobile ? 'sent' : 'received'}`}
-            >
-              <div className="message-bubble">
-                <p>{message.text}</p>
-                <span className="message-time">
-                  {new Date(message.timestamp || message.createdAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
-                </span>
-              </div>
-            </div>
-          ))
+          <MessageList 
+            messages={messages} 
+            currentUserMobile={currentUser.mobile} 
+          />
         )}
         <div ref={messagesEndRef} />
       </div>
-      
-      <form className="message-form" onSubmit={handleSendMessage}>
-        <input
-          type="text"
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Type a message..."
-        />
-        <button type="submit">Send</button>
-      </form>
+
+      <MessageInput onSendMessage={handleSendMessage} />
     </div>
   );
 };
 
-export default ChatPage;
+export default Chat;
