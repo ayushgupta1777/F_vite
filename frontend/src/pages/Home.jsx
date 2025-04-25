@@ -35,75 +35,70 @@ const Home = () => {
     }
   };
 
-  useEffect(() => {
-    // Initialize socket
-    const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-    
-    socketRef.current = initSocket(token);
+// Inside Home.jsx, update the useEffect for socket events
+useEffect(() => {
+  // Initialize socket
+  const token = localStorage.getItem('token');
+  if (!token) {
+    navigate('/login');
+    return;
+  }
+  
+  socketRef.current = initSocket(token);
 
-    fetchChats();
+  fetchChats();
 
-    // Socket event listeners for real-time updates
-    socketRef.current.on('connect', () => {
-      console.log('Connected to socket server from Home');
-    });
+  // Socket event listeners for real-time updates
+  socketRef.current.on('connect', () => {
+    console.log('Connected to socket server from Home');
+  });
 
-    socketRef.current.on('receive_message', (message) => {
-      console.log('Message received in Home:', message);
-      // Update chats when a new message arrives
-      fetchChats();
-    });
-    
-    socketRef.current.on('new_message_notification', (data) => {
-      console.log('New message notification:', data);
-      fetchChats();
-    });
-    
-    // Add listener for messages_read event
-    // socketRef.current.on('messages_read', (data) => {
-    //   console.log('Messages read notification:', data);
-    
-    //   // Update chat list to reflect read status
-    //   setChats((prevChats) =>
-    //     prevChats.map((chat) =>
-    //       chat._id === data.chatId
-    //         ? { ...chat, unreadCounts: 0 }
-    //         : chat
-    //     )
-    //   );
-    // });
-    // Listen for messages being marked as read
-socketRef.current.on('messages_read', (data) => {
-  setChats((prevChats) =>
-    prevChats.map((chat) =>
-      chat._id === data.chatId ? { ...chat, unreadCounts: 0 } : chat
-    )
-  );
-});
-
-// Listen for new message notifications
-socketRef.current.on('new_message_notification', (data) => {
-  setChats((prevChats) =>
-    prevChats.map((chat) =>
-      chat._id === data.chatId
-        ? { ...chat, unreadCounts: data.unreadCount }
+  // Listen for messages being marked as read
+  socketRef.current.on('messages_read', (data) => {
+    setChats((prevChats) =>
+      prevChats.map((chat) =>
+        chat._id === data.chatId 
+        ? { ...chat, unreadCounts: { ...chat.unreadCounts, [currentUser.mobile]: 0 }} 
         : chat
-    )
-  );
-});
+      )
+    );
+  });
 
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.off('receive_message');
-        socketRef.current.off('new_message_notification');
-        socketRef.current.off('messages_read');
+  // Listen for new message notifications
+  socketRef.current.on('new_message_notification', (data) => {
+    setChats((prevChats) => {
+      // Check if we already have this chat
+      const existingChatIndex = prevChats.findIndex(c => c._id === data.chatId);
+      
+      if (existingChatIndex >= 0) {
+        // Update existing chat
+        const updatedChats = [...prevChats];
+        updatedChats[existingChatIndex] = {
+          ...updatedChats[existingChatIndex],
+          lastMessage: data.lastMessage,
+          unreadCounts: {
+            ...updatedChats[existingChatIndex].unreadCounts,
+            [currentUser.mobile]: data.unreadCount
+          },
+          updatedAt: new Date()
+        };
+        return updatedChats;
+      } else {
+        // This might be a new chat, fetch all chats again
+        fetchChats();
+        return prevChats;
       }
-    };
-  }, [navigate]);
+    });
+  });
+
+  return () => {
+    if (socketRef.current) {
+      socketRef.current.off('receive_message');
+      socketRef.current.off('new_message_notification');
+      socketRef.current.off('messages_read');
+    }
+  };
+}, [navigate, currentUser]);
 
 
   const handleStartNewChat = async (mobile) => {

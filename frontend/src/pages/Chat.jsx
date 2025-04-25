@@ -19,77 +19,78 @@ const Chat = () => {
   const navigate = useNavigate();
   const messagesEndRef = useRef(null);
   
-  useEffect(() => {
-    // Initialize socket
-    const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-    
-    socketRef.current = initSocket(token);
+// In Chat.jsx, update the useEffect hook
+useEffect(() => {
+  // Initialize socket
+  const token = localStorage.getItem('token');
+  if (!token) {
+    navigate('/login');
+    return;
+  }
+  
+  socketRef.current = initSocket(token);
 
-    // Fetch messages
-    const getMessages = async () => {
-      try {
-        const response = await messageService.getMessages(mobile);
-        console.log("Message response:", response.data);
+  // Fetch messages
+  const getMessages = async () => {
+    try {
+      const response = await messageService.getMessages(mobile);
+      console.log("Message response:", response.data);
+      
+      if (response.data && Array.isArray(response.data.messages)) {
+        setMessages(response.data.messages);
+        setChatId(response.data.chatId);
         
-        if (response.data && Array.isArray(response.data.messages)) {
-          setMessages(response.data.messages);
-          setChatId(response.data.chatId);
-          
-          // Mark messages as read via socket
-          if (response.data.chatId && socketRef.current) {
-            socketRef.current.emit('mark_read', {
-              chatId: response.data.chatId,
-              sender: mobile
-            });
-          }
-        } else {
-          console.error("Expected messages array, got:", response.data);
-          setError("Invalid message format from server");
-        }
-        setLoading(false);
-      } catch (error) {
-        console.error("Error fetching messages:", error);
-        setError('Failed to load messages');
-        setLoading(false);
-      }
-    };
-
-    getMessages();
-
-    // Set up socket listeners
-    socketRef.current.on('connect', () => {
-      console.log('Connected to socket server in Chat');
-    });
-
-    socketRef.current.on('receive_message', (message) => {
-      // Add the message to the state if it belongs to this chat
-      if (
-        (message.sender === mobile && message.receiver === currentUser.mobile) ||
-        (message.sender === currentUser.mobile && message.receiver === mobile)
-      ) {
-        setMessages((prev) => [...prev, message]);
-    
-        // Mark message as read if the receiver is the current user
-        if (message.sender === mobile && message.receiver === currentUser.mobile && chatId) {
+        // Mark messages as read via socket when first loading chat
+        if (response.data.chatId && socketRef.current) {
           socketRef.current.emit('mark_read', {
-            chatId: chatId,
-            sender: mobile,
+            chatId: response.data.chatId,
+            sender: mobile
           });
         }
+      } else {
+        console.error("Expected messages array, got:", response.data);
+        setError("Invalid message format from server");
       }
-    });
+      setLoading(false);
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      setError('Failed to load messages');
+      setLoading(false);
+    }
+  };
 
-    // Clean up
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.off('receive_message');
+  getMessages();
+
+  // Set up socket listeners
+  socketRef.current.on('connect', () => {
+    console.log('Connected to socket server in Chat');
+  });
+
+  socketRef.current.on('receive_message', (message) => {
+    // Add the message to the state if it belongs to this chat
+    if (
+      (message.sender === mobile && message.receiver === currentUser.mobile) ||
+      (message.sender === currentUser.mobile && message.receiver === mobile)
+    ) {
+      setMessages((prev) => [...prev, message]);
+  
+      // Mark message as read immediately if the sender is the other user
+      if (message.sender === mobile && message.receiver === currentUser.mobile && chatId) {
+        socketRef.current.emit('mark_read', {
+          chatId: chatId,
+          sender: mobile,
+        });
       }
-    };
-  }, [mobile, currentUser, navigate]);
+    }
+  });
+
+  // Clean up
+  return () => {
+    if (socketRef.current) {
+      socketRef.current.off('receive_message');
+    }
+  };
+}, [mobile, currentUser, navigate]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
