@@ -64,19 +64,38 @@ const Home = () => {
     });
     
     // Add listener for messages_read event
-    socketRef.current.on('messages_read', (data) => {
-      console.log('Messages read notification:', data);
+    // socketRef.current.on('messages_read', (data) => {
+    //   console.log('Messages read notification:', data);
     
-      // Update chat list to reflect read status
-      setChats((prevChats) =>
-        prevChats.map((chat) =>
-          chat._id === data.chatId
-            ? { ...chat, unreadCounts: 0 }
-            : chat
-        )
-      );
-    });
-    
+    //   // Update chat list to reflect read status
+    //   setChats((prevChats) =>
+    //     prevChats.map((chat) =>
+    //       chat._id === data.chatId
+    //         ? { ...chat, unreadCounts: 0 }
+    //         : chat
+    //     )
+    //   );
+    // });
+    // Listen for messages being marked as read
+socketRef.current.on('messages_read', (data) => {
+  setChats((prevChats) =>
+    prevChats.map((chat) =>
+      chat._id === data.chatId ? { ...chat, unreadCounts: 0 } : chat
+    )
+  );
+});
+
+// Listen for new message notifications
+socketRef.current.on('new_message_notification', (data) => {
+  setChats((prevChats) =>
+    prevChats.map((chat) =>
+      chat._id === data.chatId
+        ? { ...chat, unreadCounts: data.unreadCount }
+        : chat
+    )
+  );
+});
+
     return () => {
       if (socketRef.current) {
         socketRef.current.off('receive_message');

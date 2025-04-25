@@ -189,11 +189,26 @@ socket.on('send_message', async (data) => {
     socket.emit('message_sent', messageData);
     
     // Notify receiver about new message with unread count
+    // if (connectedUsers.has(receiver)) {
+    //   io.to(receiver).emit('new_message_notification', {
+    //     chatId: chat._id,
+    //     sender,
+    //     unreadCount: unreadCounts[receiver]
+    //   });
+    // }
+
+    // Notify receiver about new message with unread count
     if (connectedUsers.has(receiver)) {
       io.to(receiver).emit('new_message_notification', {
         chatId: chat._id,
         sender,
-        unreadCount: unreadCounts[receiver]
+        unreadCount: unreadCounts[receiver],
+        lastMessage: {
+          _id: message._id,
+          text,
+          sender,
+          createdAt: message.timestamp,
+        },
       });
     }
   } catch (err) {
@@ -219,20 +234,20 @@ socket.on('send_message', async (data) => {
     // Mark messages as read
     socket.on('mark_read', async ({ chatId, sender }) => {
       try {
-        // Update message read status in database
+        // Update message read status in the database
         await Message.updateMany(
           { chatId, sender, receiver: userMobile, read: false },
           { $set: { read: true } }
         );
     
-        // Reset unread count in chat
+        // Reset unread count in the chat
         const chat = await Chat.findById(chatId);
         if (chat) {
           chat.unreadCounts[userMobile] = 0;
           await chat.save();
         }
     
-        // Notify sender about read status
+        // Emit event to notify the sender about the read status
         io.to(sender).emit('messages_read', {
           chatId,
           reader: userMobile,

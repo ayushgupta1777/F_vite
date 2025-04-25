@@ -37,18 +37,15 @@ const ChatList = ({ chats, currentUserMobile, onChatClick }) => {
   }
 
   const handleChatClick = (chatId, otherUserMobile) => {
-    // Reset unread count locally
+    // Reset unread count in local state
     setChats((prevChats) =>
       prevChats.map((chat) =>
-        chat._id === chatId
-          ? { ...chat, unreadCounts: 0 }
-          : chat
+        chat._id === chatId ? { ...chat, unreadCounts: 0 } : chat
       )
     );
     // Navigate to the chat page
     onChatClick(chatId, otherUserMobile);
   };
-
   return (
     <div className="chat-list">
       {chats.map((chat) => {
@@ -74,8 +71,8 @@ const ChatList = ({ chats, currentUserMobile, onChatClick }) => {
               <div className="chat-item-preview-row">
                 <p className="chat-item-message">{getLastMessagePreview(chat)}</p>
                 {chat.unreadCounts > 0 && (
-                  <div className="unread-badge">{chat.unreadCounts}</div>
-                )}
+                    <div className="unread-badge">{chat.unreadCounts}</div>
+                  )}
               </div>
             </div>
           </div>

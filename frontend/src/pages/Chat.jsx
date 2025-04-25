@@ -66,17 +66,18 @@ const Chat = () => {
     });
 
     socketRef.current.on('receive_message', (message) => {
-      console.log('Received message in Chat:', message);
-      // Add message to state if it belongs to this chat
-      if ((message.sender === mobile && message.receiver === currentUser.mobile) ||
-          (message.sender === currentUser.mobile && message.receiver === mobile)) {
-        setMessages(prev => [...prev, message]);
-        
-        // Mark message as read if receiver is current user
+      // Add the message to the state if it belongs to this chat
+      if (
+        (message.sender === mobile && message.receiver === currentUser.mobile) ||
+        (message.sender === currentUser.mobile && message.receiver === mobile)
+      ) {
+        setMessages((prev) => [...prev, message]);
+    
+        // Mark message as read if the receiver is the current user
         if (message.sender === mobile && message.receiver === currentUser.mobile && chatId) {
           socketRef.current.emit('mark_read', {
             chatId: chatId,
-            sender: mobile
+            sender: mobile,
           });
         }
       }
