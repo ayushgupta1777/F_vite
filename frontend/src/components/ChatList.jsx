@@ -36,6 +36,19 @@ const ChatList = ({ chats, currentUserMobile, onChatClick }) => {
     return <div className="no-chats">No chats yet. Start a new conversation!</div>;
   }
 
+  const handleChatClick = (chatId, otherUserMobile) => {
+    // Reset unread count locally
+    setChats((prevChats) =>
+      prevChats.map((chat) =>
+        chat._id === chatId
+          ? { ...chat, unreadCounts: 0 }
+          : chat
+      )
+    );
+    // Navigate to the chat page
+    onChatClick(chatId, otherUserMobile);
+  };
+
   return (
     <div className="chat-list">
       {chats.map((chat) => {
